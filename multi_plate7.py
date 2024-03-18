@@ -3,6 +3,7 @@ import random
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import ezdxf
+import sqlite3
 
 
 def generate_rectangles(num_types, min_size, max_size, min_count, max_count):
@@ -15,6 +16,19 @@ def generate_rectangles(num_types, min_size, max_size, min_count, max_count):
             rectangles.append((width, height, i, len(rectangles)))
     return rectangles
 
+
+def read_rectangles_from_db(db_file):
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+    cursor.execute("SELECT Type, amount, width, height, id_list FROM tbl_plate")
+    rectangles = []
+    for row in cursor:
+        type_id, amount, width, height, id_list = row
+        ids = [int(id) for id in id_list.split(',')]
+        for id in ids:
+            rectangles.append((width, height, type_id, id))
+    conn.close()
+    return rectangles
 
 def pack_rectangles_0(rectangles, bin_size):
     packer = rectpack.newPacker(rotation=True, pack_algo=rectpack.MaxRectsBssf)
@@ -143,9 +157,38 @@ def save_to_dxf(packer, rectangles, bin_size, filename):
 
     doc.saveas(filename)
 
+def save_to_database(packer, rectangles, bin_size, db_name):
+    # 连接到SQLite数据库(如果数据库不存在,则创建一个新的)
+    conn = sqlite3.connect(db_name)
+    c = conn.cursor()
 
+    # 创建表Plate_table_output(如果不存在)
+    c.execute('''CREATE TABLE IF NOT EXISTS Plate_table_output
+                 (Bin_ID INTEGER,
+                 Utilization REAL,
+                 Type INTEGER,
+                 Width REAL,
+                 Height REAL,
+                 Is_Rotated INTEGER,
+                 Bottom_Left_X REAL,
+                 Bottom_Left_Y REAL)''')
 
-num_types = 20
+    for i in range(len(packer)):
+        bin_rects = [r for r in packer.rect_list() if r[0] == i]
+        bin_utilization = sum(r[2] * r[3] for r in bin_rects) / (bin_size[0] * bin_size[1])
+
+        for rect in bin_rects:
+            b, x, y, w, h, rid = rect
+            type_id, _, _ = rectangles[rid]
+            is_rotated = 1 if w < h else 0
+
+            c.execute("INSERT INTO Plate_table_output VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                      (i, bin_utilization, type_id, w, h, is_rotated, x, y))
+
+    conn.commit()
+    conn.close()
+
+num_types = 10
 min_size = 200
 max_size = 5000
 min_count = 5
@@ -153,6 +196,9 @@ max_count = 20
 bin_size = (5000, 15000)
 
 rectangles = generate_rectangles(num_types, min_size, max_size, min_count, max_count)
+rectangles = read_rectangles_from_db('plate_layout.db')
+
+
 print(f"Generated {len(rectangles)} rectangles:")
 for r in rectangles:
     print(f"Rectangle (type {r[2]}, id {r[3]}): ({r[0]}, {r[1]})")
@@ -217,3 +263,7 @@ plt.show()
 dxf_filename = 'packing_result.dxf'
 save_to_dxf(packer, rectangles, bin_size, dxf_filename)
 print(f"Packing result saved to {dxf_filename}")
+
+db_name = 'plate_layout.db'
+save_to_database(packer, rectangles, bin_size, db_name)
+print(f"Packing result saved to {db_name}")
