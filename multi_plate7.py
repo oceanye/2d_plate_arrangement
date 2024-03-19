@@ -72,11 +72,13 @@ def pack_rectangles(rectangles, bin_size, target_utilization):
     total_rect_area = sum(r[0] * r[1] for r in rectangles)
     bin_area = bin_size[0] * bin_size[1]
     max_bins = max(1, int(2 * total_rect_area / bin_area))
+    max_attempts = 10
 
     while True:
         packer.reset()
         for _ in range(max_bins):
             packer.add_bin(width=bin_size[0], height=bin_size[1])
+
 
         packed_bins = 0
         current_bin_area = 0
@@ -87,10 +89,13 @@ def pack_rectangles(rectangles, bin_size, target_utilization):
             current_bin_area = sum(r[3] * r[4] for r in bin_rects)
             utilization = current_bin_area / bin_area * 100
 
-            if utilization >= target_utilization:
+            i_attempts = 0
+
+            if utilization >= target_utilization or i_attempts >= max_attempts:
                 packed_bins += 1
                 current_bin_area = 0
-
+            else:
+                i_attempts += 1
             packer.add_rect(width=rect[0], height=rect[1], rid=rect[3])
 
         packer.pack()
@@ -110,6 +115,7 @@ def pack_rectangles(rectangles, bin_size, target_utilization):
             max_bins += 1
 
     return packer
+
 
 
 def save_to_dxf(packer, rectangles, bin_size, filename):
@@ -196,7 +202,7 @@ max_count = 20
 bin_size = (5000, 15000)
 
 rectangles = generate_rectangles(num_types, min_size, max_size, min_count, max_count)
-rectangles = read_rectangles_from_db('plate_layout.db')
+#rectangles = read_rectangles_from_db('plate_layout.db')
 
 
 print(f"Generated {len(rectangles)} rectangles:")
@@ -204,7 +210,7 @@ for r in rectangles:
     print(f"Rectangle (type {r[2]}, id {r[3]}): ({r[0]}, {r[1]})")
 
 
-target_utilization = 95
+target_utilization = 80
 #packer = pack_rectangles(rectangles, bin_size, target_utilization)
 packer = pack_rectangles_0(rectangles, bin_size)
 
@@ -252,12 +258,21 @@ else:
         axs[i].set_xlim(0, bin_size[0])
         axs[i].set_ylim(0, bin_size[1])
         axs[i].set_aspect('equal')
+        #utilization需要标注在subplot
+        bin_rects = [r for r in all_rects if r[0] == i]
+        bin_area = bin_size[0] * bin_size[1]
+        packed_area = sum(r[3] * r[4] for r in bin_rects)
+        utilization = packed_area / bin_area * 100
+        axs[i].text(0, 0, f"Utilization{utilization:.2f}%", fontsize=12, color='red')
+
 
 
 
 
 plt.tight_layout()
 plt.show()
+# image 保存到文件
+plt.savefig('packing_result.png')
 
 
 dxf_filename = 'packing_result.dxf'
@@ -265,5 +280,5 @@ save_to_dxf(packer, rectangles, bin_size, dxf_filename)
 print(f"Packing result saved to {dxf_filename}")
 
 db_name = 'plate_layout.db'
-save_to_database(packer, rectangles, bin_size, db_name)
+#save_to_database(packer, rectangles, bin_size, db_name)
 print(f"Packing result saved to {db_name}")
